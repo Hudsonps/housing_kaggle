@@ -90,6 +90,7 @@ def preprocess_data(X, test=False):
     # target name should come from config json.
 
     #columns whose type is to be converted to str
+    # TODO: add possibility of converting types to config file
     str_cols = [
         "MSSubClass",
         "OverallCond",
