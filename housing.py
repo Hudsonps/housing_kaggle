@@ -7,12 +7,13 @@ import argparse
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import seaborn as sns
 
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
+import category_encoders as ce
 
 from utils import *
+
 
 def preprocess_data(X, test=False):
 
@@ -89,7 +90,7 @@ def preprocess_data(X, test=False):
     # but only when test=False
     # target name should come from config json.
 
-    #columns whose type is to be converted to str
+    # columns whose type is to be converted to str
     # TODO: add possibility of converting types to config file
     str_cols = [
         "MSSubClass",
@@ -103,11 +104,24 @@ def preprocess_data(X, test=False):
     return X
 
 
+def feature_engineer(X, test=False):
+    """
+    This function needs to be adjusted for every use case
+    It contains steps that cannot be generalized with a simple config file
+    """
+    return X
 
 
 def transform_data(X, test=False):
     """
     Preparing final dataset with all features.
+
+    Arguments
+    ---
+    X - dataframe with preprocessed features and target variable
+    test - boolean; if false, it means X is the training set
+           If true, it means X is the test set
+
     """
 
     columns = list(X.columns)
@@ -126,23 +140,39 @@ def transform_data(X, test=False):
             X.reset_index(drop=True, inplace=True)
 
     # TODO: read the target name from config
-    target = "target_variable_name"
+    target = "SalesPrice"
 
     # TODO: make cols identified from config file
-    log_cols = []
-    log1p_cols = []
+    log_cols = []  # cols to take log
+    log1p_cols = []  # cols to take log1p
+    onehot_cols = []  # cols to one-hot encode
 
     # if true, we will take the log of the target
     # TODO: let's read that from a config file later
+    global log_target
     log_target = True
 
     for col in log_cols:
-        # this will replace the columns with their log1p values
+        # this will replace the columns with their log values
         X[col] = np.log(X[col])
 
-    for col in log_cols:
-    # this will replace the columns with their log values
+    for col in log1p_cols:
+        # this will replace the columns with their log1p values
         X[col] = np.log1p(X[col])
+
+    # one-hot encoding
+    if onehot_cols:
+        if not test:
+            # onehot_encoder must be global so it can be used
+            # again on the test test
+            global onehot_encoder
+            onehot_encoder = ce.OneHotEncoder(
+                cols=onehot_cols,
+                use_cat_names=True,
+                handle_unknown=ignore)
+            X = onehot_encoder.fit_transform(X)
+        else:
+            X = onehot_encoder.transform(X)
 
     if test:
         return X
@@ -155,26 +185,10 @@ def transform_data(X, test=False):
         return X, y
 
 
-parser = argparse.ArgumentParser(
-    description="Generate aggregate features")
-parser.add_argument(
-    '-s', '--sample',
-    action='store_true',
-    help='Run code on a select subset of ruts '
-         'from main dataset for prototyping'
-)
-parser.add_argument(
-    '-sn', '--submission_name',
-    type=pathlib.Path,
-    required=True,
-    help='Name of submission',
-)
-
 if __name__ == '__main__':
 
-    MAIN = pathlib.Path('/Users/palermopenano/personal/kaggle_energy')
+    MAIN = pathlib.Path('/')
     SUBMISSIONS_PATH = MAIN / 'submissions'
-    p = parser.parse_args()
     sample = p.sample
     submission_name = p.submission_name
     random.seed(0)
@@ -183,47 +197,23 @@ if __name__ == '__main__':
     # Load Data #
     #############
     print("Loading data...")
-    df_train = pd.read_csv(MAIN / 'data' / 'train.csv')
-    building = pd.read_csv(MAIN / 'data' / 'building_metadata.csv')
-    le = LabelEncoder()
-    building.primary_use = le.fit_transform(building.primary_use)
-    weather_train = pd.read_csv(MAIN / 'data' / 'weather_train.csv')
+    train = pd.read_csv(MAIN / 'data' / 'train.csv')
 
     # Take only a random sample of n buildings
-    randbuilding = None
-    if sample:
-        print("Taking a random sample of buildings...")
-        df_train, randbuilding = \
-            df_sample_random_buildings(df_train, 'building_id', n=5)
-        print(randbuilding)
-    print(df_train.shape)
+    print(train.shape)
+
+    # TODO: reimplement reduce memory usage
 
     #######################
     # Reduce Memory Usage #
     #######################
-    print("Reducing memory usage...")
-    df_train = reduce_mem_usage(
-        df_train,
-        use_float16=True,
-        cols_exclude=['timestamp']
-    )
-    building = reduce_mem_usage(
-        building,
-        use_float16=True,
-        cols_exclude=['timestamp']
-    )
-    weather_train = reduce_mem_usage(
-        weather_train,
-        use_float16=True,
-        cols_exclude=['timestamp']
-    )
 
     #########################
     # Prepare Training Data #
     #########################
-    X_train, y_train = prepare_data(df_train, building, weather_train)
-    del df_train, weather_train
-    gc.collect()
+    train = preprocess_data(train, test=False)
+    train = feature_engineer(train, test=False)
+    X_train, y_train = transform_data(train, test=False)
 
     #####################
     # Two-Fold LightGBM #
@@ -235,6 +225,7 @@ if __name__ == '__main__':
     y_half_1 = y_train[:int(X_train.shape[0] / 2)]
     y_half_2 = y_train[int(X_train.shape[0] / 2):]
 
+    # TODO: Read categorical features from config file
     categorical_features = [
         "building_id", "site_id",
         "meter", "primary_use",
@@ -297,25 +288,17 @@ if __name__ == '__main__':
         "Loading test set...",
         sep='\n'
     )
-    df_test = pd.read_csv(MAIN / 'data' / 'test.csv')
-    weather_test = pd.read_csv(MAIN / 'data' / 'weather_test.csv')
 
-    df_test = reduce_mem_usage(
-        df_test,
-        use_float16=True,
-        cols_exclude=['timestamp']
-    )
-    weather_test = reduce_mem_usage(
-        weather_test,
-        use_float16=True,
-        cols_exclude=['timestamp']
-    )
+    test = pd.read_csv(MAIN / 'data' / 'test.csv')
 
-    if sample:
-        df_test = df_test[df_test['building_id'].isin(randbuilding)]
-        print("Shape of test data: ", df_test.shape)
+    # TODO: Call memory usage on test set
 
-    X_test, row_ids = prepare_data(df_test, building, weather_test, test=True)
+    # TODO: think of a better way to track the test ID's
+    # without having to hardcore the name
+    test_ids = test['Id']
+    test = preprocess_data(test, test=True)
+    test = feature_engineer(test, test=True)
+    X_test, y_test = transform_data(test, test=True)
 
     ######################
     # Prepare Submission #
@@ -329,7 +312,13 @@ if __name__ == '__main__':
         X_test,
         num_iteration=model_half_1.best_iteration
     )
-    pred = np.expm1(raw_pred_1) / 2
+    # TODO: Whether we take the exp or not of pred depends on
+    # whether log was transformed inside transform_data function
+    # We must read that from a config file
+    if log_target:
+        pred = np.expm1(raw_pred_1) / 2
+    else:
+        pred = raw_pred_1 / 2
     del model_half_1
     gc.collect()
 
@@ -337,14 +326,18 @@ if __name__ == '__main__':
         X_test,
         num_iteration=model_half_2.best_iteration
     )
-    pred += np.expm1(raw_pred_2) / 2
+    # TODO: Same as above
+    if log_target:
+        pred += np.expm1(raw_pred_2) / 2
+    else:
+        pred += raw_pred_2 / 2
     del model_half_2
     gc.collect()
 
     if not sample:
         print("Saving predictions as csv...")
         submission = pd.DataFrame(
-            {"row_id": row_ids, "meter_reading": np.clip(pred, 0, a_max=None)}
+            {"Id": test_ids, "SalePrice": np.clip(pred, 0, a_max=None)}
         )
         submission.to_csv(
             SUBMISSIONS_PATH / (submission_name + '.csv'), index=False
