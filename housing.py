@@ -89,6 +89,16 @@ def preprocess_data(X, test=False):
     # but only when test=False
     # target name should come from config json.
 
+    #columns whose type is to be converted to str
+    str_cols = [
+        "MSSubClass",
+        "OverallCond",
+        "YrSold",
+        "MoSold"
+    ]
+    for col in str_cols:
+        X[col] = X[col].apply(str)
+
     return X
 
 
@@ -126,7 +136,7 @@ def transform_data(X, test=False):
     log_target = True
 
     for col in log_cols:
-        # this will replace the columns with their log values
+        # this will replace the columns with their log1p values
         X[col] = np.log(X[col])
 
     for col in log_cols:
