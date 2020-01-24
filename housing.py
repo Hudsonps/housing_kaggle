@@ -11,78 +11,55 @@ import pandas as pd
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 import category_encoders as ce
+import yaml
 
-from utils import *
+
+def load_yaml(yaml_file: pathlib.Path):
+    with open(yaml_file, 'r') as stream:
+        try:
+            return yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
 
 
 def preprocess_data(X, test=False):
 
     # drop whatever cols are deemed irrelevant
     # TODO: read drop_cols from config file
-    drop_cols = [
-        "Utilities"
-    ]
+
+    config = load_yaml("./config.yaml")
+
+    target = config["general"]["target_variable"]
+
+    drop_cols = config["preprocess"]["drop_cols"]
+    fill_custom = config["preprocessing"]["fill_custom"]
+    fill_most_frequent_cols = config["preprocessing"]["fill_most_frequent"]
+    fill_median_groupby = config["preprocessing"]["fill_median_groupby"]
+
+    #######
     for col in drop_cols:
         X.drop(col, axis=1, inplace=True)
 
-    # fillna values
-    # I don't see a way of making this part automatic
-    # Since what to fill and how may change
-    # TODO: Consider options for automation
+    for item in fill_custom:
+        value = item["value"]
+        custom_cols = item["cols"]
+        for col in custom_cols:
+            X[col] = X[col].fillna(value)
 
-    fill_none = [
-        "PoolQC",
-        "MisFeature",
-        "Alley",
-        "Fence",
-        "FireplaceQu",
-        "GarageType",
-        "GarageFinish",
-        "GarageQual",
-        "GarageCond",
-        "BsmtQual",
-        "BsmtCond",
-        "BsmtExposure",
-        "BsmtFinType1",
-        "BsmtFinType2",
-        "MasVnrType",
-        "MSSubClass"
-    ]
-    for col in fill_none:
-        X[col] = X[col].fillna("None")
+    # TODO: fillna median without groupby
+    # TODO: mean without groupby
+    # TODO: mean with groupby
 
-    # fill with median
-    # TODO: think about how to automate this step
-    # It is harder because there is a groupby involved...
-    X["LotFrontage"] = X.groupby("Neighborhood")["LotFrontage"].transform(
-        lambda x: x.fillna(x.median()))
+    for item in fill_median_groupby:
+        groupby_cols = item["groupby_cols"]
+        filled_cols = item["cols"]
+        for col in filled_cols:
+            X["LotFrontage"] = X.groupby(groupby_cols)[col].transform(
+                lambda x: x.fillna(x.median()))
 
-    fill_zero = [
-        "GarageYrBlt",
-        "GarageArea",
-        "GarageCars",
-        "BsmtFinSF1",
-        "BsmtFinSF2",
-        "BsmtUnfSF",
-        "TotalBsmtSF",
-        "BsmtFullBath",
-        "BsmtHalfBath",
-        "MasVnrArea"
-    ]
-    for col in fill_zero:
-        X[col] = X[col].fillna(0)
+    for col in fill_most_frequent_cols:
+        X[col] = X[col].fillna(X[col].mode()[0])
 
-    # TODO: generalize the lines below
-    X['MSZoning'] = X['MSZoning'].fillna(X['MSZoning'].mode()[0])
-    X['Electrical'] = X['Electrical'].fillna(
-        X['Electrical'].mode()[0])
-    X['KitchenQual'] = X['KitchenQual'].fillna(X['KitchenQual'].mode()[0])
-    X['Exterior1st'] = X['Exterior1st'].fillna(X['Exterior1st'].mode()[0])
-    X['Exterior2nd'] = X['Exterior2nd'].fillna(X['Exterior2nd'].mode()[0])
-    X['SaleType'] = X['SaleType'].fillna(X['SaleType'].mode()[0])
-
-    # TODO: give config json the possibility of custom fillna
-    X["Functional"] = X["Functional"].fillna("Typ")
 
     # TODO: Include a check for whether there are still missing values
 
@@ -123,8 +100,15 @@ def transform_data(X, test=False):
            If true, it means X is the test set
 
     """
+    config = load_yaml("./config.yaml")
 
     columns = list(X.columns)
+
+    log_cols = config["transform"]["log_cols"]
+    log1p_cols = config["transform"]["log1p_cols"]
+    onehot_cols = config["transform"]["onehot_cols"]
+    target = config["general"]["target_variable"]
+    log_target = config["transform"]["log_target"]
 
     # generate time features (only relevant for time series)
     # TODO: make datetime column identifiable from config file
@@ -139,18 +123,7 @@ def transform_data(X, test=False):
             X.sort_values("timestamp", inplace=True)
             X.reset_index(drop=True, inplace=True)
 
-    # TODO: read the target name from config
-    target = "SalesPrice"
-
     # TODO: make cols identified from config file
-    log_cols = []  # cols to take log
-    log1p_cols = []  # cols to take log1p
-    onehot_cols = []  # cols to one-hot encode
-
-    # if true, we will take the log of the target
-    # TODO: let's read that from a config file later
-    global log_target
-    log_target = True
 
     for col in log_cols:
         # this will replace the columns with their log values

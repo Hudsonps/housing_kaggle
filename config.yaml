@@ -1,0 +1,57 @@
+general:
+  target_variable: "SalePrice"
+preprocess:
+  drop_cols:
+    - Utilities
+  fill_most_frequent:
+    - MSZoning
+    - Electrical
+    - KitchenQual
+    - Exterior1st
+    - Exterior2nd
+    - SaleType
+  fill_custom:
+    - value: "None"
+      cols:
+        - PoolQC
+        - MisFeature
+        - Alley
+        - Fence
+        - FireplaceQu
+        - GarageType
+        - GarageFinish
+        - GarageQual
+        - GarageCond
+        - BsmtQual
+        - BsmtCond
+        - BsmtExposure
+        - BsmtFinType1
+        - BsmtFinType2
+        - MasVnrType
+        - MSSubClass
+    - value: "typ"
+    - cols:
+        - Functional
+    - value: 0
+      cols:
+        - GarageYrBlt
+        - GarageArea
+        - GarageCars
+        - BsmtFinSF1
+        - BsmtFinSF2
+        - BsmtUnfSF
+        - TotalBsmtSF
+        - BsmtFullBath
+        - BsmtHalfBath
+        - MasVnrArea
+  fill_median_groupby:
+    - groupby_cols:
+        - Neighborhood
+      cols:
+        - LotFrontage
+
+transform:
+  log_cols:
+    - Placeholder_log
+  log1p_cols
+    - Placeholder_log1p
