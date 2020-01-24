@@ -49,9 +49,40 @@ preprocess:
         - Neighborhood
       cols:
         - LotFrontage
+  type_str_cols:
+    - MSSubClass
+    - OverallCond
+    - YrSold
+    - MoSold
 
 transform:
   log_cols:
-    - Placeholder_log
-  log1p_cols
-    - Placeholder_log1p
+  log1p_cols:
+  onehot_cols:
+    - FireplaceQu
+    - BsmtQual
+    - BsmtCond
+    - GarageQual
+    - GarageCond
+    - ExterQual
+    - ExterCond
+    - HeatingQC
+    - PoolQC
+    - KitchenQual
+    - BsmtFinType1
+    - BsmtFinType2
+    - Functional
+    - Fence
+    - BsmtExposure
+    - GarageFinish
+    - LandSlope
+    - LotShape
+    - PavedDrive
+    - Street
+    - Alley
+    - CentralAir
+    - MSSubClass
+    - OverallCond
+    - YrSold
+    - MoSold
+  log_target: True

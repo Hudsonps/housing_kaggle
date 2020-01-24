@@ -35,6 +35,7 @@ def preprocess_data(X, test=False):
     fill_custom = config["preprocessing"]["fill_custom"]
     fill_most_frequent_cols = config["preprocessing"]["fill_most_frequent"]
     fill_median_groupby = config["preprocessing"]["fill_median_groupby"]
+    type_str_cols = config["preprocessing"]["type_str_cols"]
 
     #######
     for col in drop_cols:
@@ -60,7 +61,6 @@ def preprocess_data(X, test=False):
     for col in fill_most_frequent_cols:
         X[col] = X[col].fillna(X[col].mode()[0])
 
-
     # TODO: Include a check for whether there are still missing values
 
     # TODO: Check if target variable also has problems
@@ -69,13 +69,7 @@ def preprocess_data(X, test=False):
 
     # columns whose type is to be converted to str
     # TODO: add possibility of converting types to config file
-    str_cols = [
-        "MSSubClass",
-        "OverallCond",
-        "YrSold",
-        "MoSold"
-    ]
-    for col in str_cols:
+    for col in type_str_cols:
         X[col] = X[col].apply(str)
 
     return X
@@ -86,6 +80,7 @@ def feature_engineer(X, test=False):
     This function needs to be adjusted for every use case
     It contains steps that cannot be generalized with a simple config file
     """
+    X['TotalSF'] = X['TotalBsmtSF'] + X['1stFlrSF'] + X['2ndFlrSF']
     return X
 
 
