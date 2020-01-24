@@ -7,11 +7,15 @@ import argparse
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 import category_encoders as ce
 import yaml
+from scipy.special import boxcox1p
+from scipy import stats
+from scipy.stats import norm, skew
 
 
 def load_yaml(yaml_file: pathlib.Path):
@@ -32,10 +36,11 @@ def preprocess_data(X, test=False):
     target = config["general"]["target_variable"]
 
     drop_cols = config["preprocess"]["drop_cols"]
-    fill_custom = config["preprocessing"]["fill_custom"]
-    fill_most_frequent_cols = config["preprocessing"]["fill_most_frequent"]
-    fill_median_groupby = config["preprocessing"]["fill_median_groupby"]
-    type_str_cols = config["preprocessing"]["type_str_cols"]
+    fill_custom = config["preprocess"]["fill_custom"]
+    fill_most_frequent_cols = config["preprocess"]["fill_most_frequent"]
+    fill_median_groupby = config["preprocess"]["fill_median_groupby"]
+    type_str_cols = config["preprocess"]["type_str_cols"]
+    categorical_features = config["general"]["categorical_variables"]
 
     #######
     for col in drop_cols:
@@ -61,7 +66,6 @@ def preprocess_data(X, test=False):
     for col in fill_most_frequent_cols:
         X[col] = X[col].fillna(X[col].mode()[0])
 
-    # TODO: Include a check for whether there are still missing values
 
     # TODO: Check if target variable also has problems
     # but only when test=False
@@ -69,8 +73,18 @@ def preprocess_data(X, test=False):
 
     # columns whose type is to be converted to str
     # TODO: add possibility of converting types to config file
-    for col in type_str_cols:
-        X[col] = X[col].apply(str)
+    if type_str_cols:
+        for col in type_str_cols:
+            X[col] = X[col].apply(str)
+
+    for col in categorical_features:
+        X[col] = X[col].astype('category')
+
+    # TODO: Include a check for whether there are still missing values
+    for col in X.columns:
+        if any(X[col].isna()):
+            print("There are still NA's in column " + str(col))
+            return -1
 
     return X
 
@@ -81,6 +95,27 @@ def feature_engineer(X, test=False):
     It contains steps that cannot be generalized with a simple config file
     """
     X['TotalSF'] = X['TotalBsmtSF'] + X['1stFlrSF'] + X['2ndFlrSF']
+    #for col in ['TotalBsmtSF', '1stFlrSF', '2ndFlrSF']:
+     #   X.drop(col, axis=1, inplace=True)
+
+    # since the number of skewed features is very large,
+    # we will not use the config file at first to take the log of variables
+   # numeric_feats = []
+   # for col in X.columns:
+    #    if is_numeric_dtype(X[col]):
+     #       numeric_feats.append(col)
+    #skewed_feats = X[numeric_feats].apply(lambda x: skew(x.dropna()))\
+    #    .sort_values(ascending=False)
+    #skewness = pd.DataFrame({'Skew': skewed_feats})
+    #skewness = skewness[abs(skewness) > 0.75]
+
+    #print(skewness)
+
+    #skewed_features = skewness.index
+    #lam = 0.15
+    #for feat in skewed_features:
+     #   X[feat] = boxcox1p(X[feat], lam)
+
     return X
 
 
@@ -120,15 +155,18 @@ def transform_data(X, test=False):
 
     # TODO: make cols identified from config file
 
-    for col in log_cols:
-        # this will replace the columns with their log values
-        X[col] = np.log(X[col])
+    if log_cols:
+        for col in log_cols:
+            # this will replace the columns with their log values
+            X[col] = np.log(X[col])
 
-    for col in log1p_cols:
-        # this will replace the columns with their log1p values
-        X[col] = np.log1p(X[col])
+    if log1p_cols:
+        for col in log1p_cols:
+            # this will replace the columns with their log1p values
+            X[col] = np.log1p(X[col])
 
     # one-hot encoding
+    onehot_cols = []  # temporarily overwriting the config file
     if onehot_cols:
         if not test:
             # onehot_encoder must be global so it can be used
@@ -155,11 +193,12 @@ def transform_data(X, test=False):
 
 if __name__ == '__main__':
 
-    MAIN = pathlib.Path('/')
+    MAIN = pathlib.Path('./')
     SUBMISSIONS_PATH = MAIN / 'submissions'
-    sample = p.sample
-    submission_name = p.submission_name
+    submission_name = 'submission.csv'
     random.seed(0)
+
+    config = load_yaml("./config.yaml")
 
     #############
     # Load Data #
@@ -167,7 +206,6 @@ if __name__ == '__main__':
     print("Loading data...")
     train = pd.read_csv(MAIN / 'data' / 'train.csv')
 
-    # Take only a random sample of n buildings
     print(train.shape)
 
     # TODO: reimplement reduce memory usage
@@ -194,11 +232,7 @@ if __name__ == '__main__':
     y_half_2 = y_train[int(X_train.shape[0] / 2):]
 
     # TODO: Read categorical features from config file
-    categorical_features = [
-        "building_id", "site_id",
-        "meter", "primary_use",
-        "hour", "weekday"
-    ]
+    categorical_features = config["general"]["categorical_variables"]
 
     d_half_1 = lgb.Dataset(
         X_half_1,
@@ -224,7 +258,7 @@ if __name__ == '__main__':
         "num_leaves": 40,
         "learning_rate": 0.05,
         "feature_fraction": 0.85,
-        "reg_lambda": 2,
+        "reg_lambda": 3,
         "metric": "rmse"
     }
 
@@ -266,7 +300,7 @@ if __name__ == '__main__':
     test_ids = test['Id']
     test = preprocess_data(test, test=True)
     test = feature_engineer(test, test=True)
-    X_test, y_test = transform_data(test, test=True)
+    X_test = transform_data(test, test=True)
 
     ######################
     # Prepare Submission #
@@ -280,9 +314,8 @@ if __name__ == '__main__':
         X_test,
         num_iteration=model_half_1.best_iteration
     )
-    # TODO: Whether we take the exp or not of pred depends on
-    # whether log was transformed inside transform_data function
-    # We must read that from a config file
+
+    log_target = config["transform"]["log_target"]
     if log_target:
         pred = np.expm1(raw_pred_1) / 2
     else:
@@ -302,17 +335,10 @@ if __name__ == '__main__':
     del model_half_2
     gc.collect()
 
-    if not sample:
-        print("Saving predictions as csv...")
-        submission = pd.DataFrame(
+    print("Saving predictions as csv...")
+    submission = pd.DataFrame(
             {"Id": test_ids, "SalePrice": np.clip(pred, 0, a_max=None)}
         )
-        submission.to_csv(
-            SUBMISSIONS_PATH / (submission_name + '.csv'), index=False
-        )
-
-        print(
-            submission.meter_reading.describe().apply(
-                lambda x: format(x, ',.2f')
-            )
+    submission.to_csv(
+            SUBMISSIONS_PATH / (submission_name), index=False
         )

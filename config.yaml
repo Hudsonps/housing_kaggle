@@ -1,7 +1,55 @@
 general:
   target_variable: "SalePrice"
+  categorical_variables:
+    - FireplaceQu
+    - BsmtQual
+    - BsmtCond
+    - GarageQual
+    - GarageCond
+    - ExterQual
+    - ExterCond
+    - HeatingQC
+    - PoolQC
+    - KitchenQual
+    - BsmtFinType1
+    - BsmtFinType2
+    - Functional
+    - Fence
+    - BsmtExposure
+    - GarageFinish
+    - LandSlope
+    - LotShape
+    - PavedDrive
+    - Street
+    - Alley
+    - CentralAir
+    - MSSubClass
+    - OverallCond
+    - YrSold
+    - MoSold
+    - MiscFeature
+    - MSZoning
+    - LandContour
+    - Electrical
+    - LotConfig
+    - Neighborhood
+    - Condition1
+    - Condition2
+    - BldgType
+    - HouseStyle
+    - RoofStyle
+    - RoofMatl
+    - GarageType
+    - Exterior1st
+    - Exterior2nd
+    - Heating
+    - Foundation
+    - SaleType
+    - SaleCondition
+    - MasVnrType
 preprocess:
   drop_cols:
+    - Id
     - Utilities
   fill_most_frequent:
     - MSZoning
@@ -14,7 +62,7 @@ preprocess:
     - value: "None"
       cols:
         - PoolQC
-        - MisFeature
+        - MiscFeature
         - Alley
         - Fence
         - FireplaceQu
@@ -30,7 +78,7 @@ preprocess:
         - MasVnrType
         - MSSubClass
     - value: "typ"
-    - cols:
+      cols:
         - Functional
     - value: 0
       cols:
@@ -50,14 +98,30 @@ preprocess:
       cols:
         - LotFrontage
   type_str_cols:
-    - MSSubClass
-    - OverallCond
-    - YrSold
-    - MoSold
 
 transform:
   log_cols:
   log1p_cols:
+    - PoolArea
+    - MiscVal
+    - LowQualFinSF
+    - 3SsnPorch
+    - EnclosedPorch
+    - KitchenAbvGr
+    - BsmtFinSF2
+    - ScreenPorch
+    - BsmtHalfBath
+    - LotArea
+    - OpenPorchSF
+    - MasVnrArea
+    - WoodDeckSF
+    - TotalSF
+    - BsmtFinSF1
+    - GrLivArea
+    - BsmtUnfSF
+    - TotRmsAbvGrd
+    - Fireplaces
+    - LotFrontage
   onehot_cols:
     - FireplaceQu
     - BsmtQual
@@ -85,4 +149,5 @@ transform:
     - OverallCond
     - YrSold
     - MoSold
+    - MiscFeature
   log_target: True
