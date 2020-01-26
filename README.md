@@ -10,5 +10,11 @@ Once installed, `cd` in the repository and build the virtual environment using t
 conda env create -f environment.yaml
 ```
 
+Activate the environment by
+
+```
+conda activate ml
+```
+
 ## TODO
 * ???
