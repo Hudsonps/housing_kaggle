@@ -7,99 +7,138 @@ import argparse
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import seaborn as sns
+from pandas.api.types import is_numeric_dtype
 
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
+import category_encoders as ce
+import yaml
+from scipy.special import boxcox1p
+from scipy import stats
+from scipy.stats import norm, skew
 
-from utils import *
+
+def load_yaml(yaml_file: pathlib.Path):
+    with open(yaml_file, 'r') as stream:
+        try:
+            return yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
+
 
 def preprocess_data(X, test=False):
 
     # drop whatever cols are deemed irrelevant
     # TODO: read drop_cols from config file
-    drop_cols = [
-        "Utilities"
-    ]
+
+    config = load_yaml("./config.yaml")
+
+    target = config["general"]["target_variable"]
+
+    drop_cols = config["preprocess"]["drop_cols"]
+    fill_custom = config["preprocess"]["fill_custom"]
+    fill_most_frequent_cols = config["preprocess"]["fill_most_frequent"]
+    fill_median_groupby = config["preprocess"]["fill_median_groupby"]
+    type_str_cols = config["preprocess"]["type_str_cols"]
+    categorical_features = config["general"]["categorical_variables"]
+
+    #######
     for col in drop_cols:
         X.drop(col, axis=1, inplace=True)
 
-    # fillna values
-    # I don't see a way of making this part automatic
-    # Since what to fill and how may change
-    # TODO: Consider options for automation
+    for item in fill_custom:
+        value = item["value"]
+        custom_cols = item["cols"]
+        for col in custom_cols:
+            X[col] = X[col].fillna(value)
 
-    fill_none = [
-        "PoolQC",
-        "MisFeature",
-        "Alley",
-        "Fence",
-        "FireplaceQu",
-        "GarageType",
-        "GarageFinish",
-        "GarageQual",
-        "GarageCond",
-        "BsmtQual",
-        "BsmtCond",
-        "BsmtExposure",
-        "BsmtFinType1",
-        "BsmtFinType2",
-        "MasVnrType",
-        "MSSubClass"
-    ]
-    for col in fill_none:
-        X[col] = X[col].fillna("None")
+    # TODO: fillna median without groupby
+    # TODO: mean without groupby
+    # TODO: mean with groupby
 
-    # fill with median
-    # TODO: think about how to automate this step
-    # It is harder because there is a groupby involved...
-    X["LotFrontage"] = X.groupby("Neighborhood")["LotFrontage"].transform(
-        lambda x: x.fillna(x.median()))
+    for item in fill_median_groupby:
+        groupby_cols = item["groupby_cols"]
+        filled_cols = item["cols"]
+        for col in filled_cols:
+            X["LotFrontage"] = X.groupby(groupby_cols)[col].transform(
+                lambda x: x.fillna(x.median()))
 
-    fill_zero = [
-        "GarageYrBlt",
-        "GarageArea",
-        "GarageCars",
-        "BsmtFinSF1",
-        "BsmtFinSF2",
-        "BsmtUnfSF",
-        "TotalBsmtSF",
-        "BsmtFullBath",
-        "BsmtHalfBath",
-        "MasVnrArea"
-    ]
-    for col in fill_zero:
-        X[col] = X[col].fillna(0)
+    for col in fill_most_frequent_cols:
+        X[col] = X[col].fillna(X[col].mode()[0])
 
-    # TODO: generalize the lines below
-    X['MSZoning'] = X['MSZoning'].fillna(X['MSZoning'].mode()[0])
-    X['Electrical'] = X['Electrical'].fillna(
-        X['Electrical'].mode()[0])
-    X['KitchenQual'] = X['KitchenQual'].fillna(X['KitchenQual'].mode()[0])
-    X['Exterior1st'] = X['Exterior1st'].fillna(X['Exterior1st'].mode()[0])
-    X['Exterior2nd'] = X['Exterior2nd'].fillna(X['Exterior2nd'].mode()[0])
-    X['SaleType'] = X['SaleType'].fillna(X['SaleType'].mode()[0])
-
-    # TODO: give config json the possibility of custom fillna
-    X["Functional"] = X["Functional"].fillna("Typ")
-
-    # TODO: Include a check for whether there are still missing values
 
     # TODO: Check if target variable also has problems
     # but only when test=False
     # target name should come from config json.
 
+    # columns whose type is to be converted to str
+    # TODO: add possibility of converting types to config file
+    if type_str_cols:
+        for col in type_str_cols:
+            X[col] = X[col].apply(str)
+
+    for col in categorical_features:
+        X[col] = X[col].astype('category')
+
+    # TODO: Include a check for whether there are still missing values
+    for col in X.columns:
+        if any(X[col].isna()):
+            print("There are still NA's in column " + str(col))
+            return -1
+
     return X
 
 
+def feature_engineer(X, test=False):
+    """
+    This function needs to be adjusted for every use case
+    It contains steps that cannot be generalized with a simple config file
+    """
+    X['TotalSF'] = X['TotalBsmtSF'] + X['1stFlrSF'] + X['2ndFlrSF']
+    #for col in ['TotalBsmtSF', '1stFlrSF', '2ndFlrSF']:
+     #   X.drop(col, axis=1, inplace=True)
+
+    # since the number of skewed features is very large,
+    # we will not use the config file at first to take the log of variables
+   # numeric_feats = []
+   # for col in X.columns:
+    #    if is_numeric_dtype(X[col]):
+     #       numeric_feats.append(col)
+    #skewed_feats = X[numeric_feats].apply(lambda x: skew(x.dropna()))\
+    #    .sort_values(ascending=False)
+    #skewness = pd.DataFrame({'Skew': skewed_feats})
+    #skewness = skewness[abs(skewness) > 0.75]
+
+    #print(skewness)
+
+    #skewed_features = skewness.index
+    #lam = 0.15
+    #for feat in skewed_features:
+     #   X[feat] = boxcox1p(X[feat], lam)
+
+    return X
 
 
 def transform_data(X, test=False):
     """
     Preparing final dataset with all features.
+
+    Arguments
+    ---
+    X - dataframe with preprocessed features and target variable
+    test - boolean; if false, it means X is the training set
+           If true, it means X is the test set
+
     """
+    config = load_yaml("./config.yaml")
 
     columns = list(X.columns)
+
+    log_cols = config["transform"]["log_cols"]
+    log1p_cols = config["transform"]["log1p_cols"]
+    onehot_cols = config["transform"]["onehot_cols"]
+    target = config["general"]["target_variable"]
+    log_target = config["transform"]["log_target"]
 
     # generate time features (only relevant for time series)
     # TODO: make datetime column identifiable from config file
@@ -114,24 +153,32 @@ def transform_data(X, test=False):
             X.sort_values("timestamp", inplace=True)
             X.reset_index(drop=True, inplace=True)
 
-    # TODO: read the target name from config
-    target = "target_variable_name"
-
     # TODO: make cols identified from config file
-    log_cols = []
-    log1p_cols = []
 
-    # if true, we will take the log of the target
-    # TODO: let's read that from a config file later
-    log_target = True
+    if log_cols:
+        for col in log_cols:
+            # this will replace the columns with their log values
+            X[col] = np.log(X[col])
 
-    for col in log_cols:
-        # this will replace the columns with their log values
-        X[col] = np.log(X[col])
+    if log1p_cols:
+        for col in log1p_cols:
+            # this will replace the columns with their log1p values
+            X[col] = np.log1p(X[col])
 
-    for col in log_cols:
-    # this will replace the columns with their log values
-        X[col] = np.log1p(X[col])
+    # one-hot encoding
+    onehot_cols = []  # temporarily overwriting the config file
+    if onehot_cols:
+        if not test:
+            # onehot_encoder must be global so it can be used
+            # again on the test test
+            global onehot_encoder
+            onehot_encoder = ce.OneHotEncoder(
+                cols=onehot_cols,
+                use_cat_names=True,
+                handle_unknown=ignore)
+            X = onehot_encoder.fit_transform(X)
+        else:
+            X = onehot_encoder.transform(X)
 
     if test:
         return X
@@ -144,75 +191,35 @@ def transform_data(X, test=False):
         return X, y
 
 
-parser = argparse.ArgumentParser(
-    description="Generate aggregate features")
-parser.add_argument(
-    '-s', '--sample',
-    action='store_true',
-    help='Run code on a select subset of ruts '
-         'from main dataset for prototyping'
-)
-parser.add_argument(
-    '-sn', '--submission_name',
-    type=pathlib.Path,
-    required=True,
-    help='Name of submission',
-)
-
 if __name__ == '__main__':
 
-    MAIN = pathlib.Path('/Users/palermopenano/personal/kaggle_energy')
+    MAIN = pathlib.Path('./')
     SUBMISSIONS_PATH = MAIN / 'submissions'
-    p = parser.parse_args()
-    sample = p.sample
-    submission_name = p.submission_name
+    submission_name = 'submission.csv'
     random.seed(0)
+
+    config = load_yaml("./config.yaml")
 
     #############
     # Load Data #
     #############
     print("Loading data...")
-    df_train = pd.read_csv(MAIN / 'data' / 'train.csv')
-    building = pd.read_csv(MAIN / 'data' / 'building_metadata.csv')
-    le = LabelEncoder()
-    building.primary_use = le.fit_transform(building.primary_use)
-    weather_train = pd.read_csv(MAIN / 'data' / 'weather_train.csv')
+    train = pd.read_csv(MAIN / 'data' / 'train.csv')
 
-    # Take only a random sample of n buildings
-    randbuilding = None
-    if sample:
-        print("Taking a random sample of buildings...")
-        df_train, randbuilding = \
-            df_sample_random_buildings(df_train, 'building_id', n=5)
-        print(randbuilding)
-    print(df_train.shape)
+    print(train.shape)
+
+    # TODO: reimplement reduce memory usage
 
     #######################
     # Reduce Memory Usage #
     #######################
-    print("Reducing memory usage...")
-    df_train = reduce_mem_usage(
-        df_train,
-        use_float16=True,
-        cols_exclude=['timestamp']
-    )
-    building = reduce_mem_usage(
-        building,
-        use_float16=True,
-        cols_exclude=['timestamp']
-    )
-    weather_train = reduce_mem_usage(
-        weather_train,
-        use_float16=True,
-        cols_exclude=['timestamp']
-    )
 
     #########################
     # Prepare Training Data #
     #########################
-    X_train, y_train = prepare_data(df_train, building, weather_train)
-    del df_train, weather_train
-    gc.collect()
+    train = preprocess_data(train, test=False)
+    train = feature_engineer(train, test=False)
+    X_train, y_train = transform_data(train, test=False)
 
     #####################
     # Two-Fold LightGBM #
@@ -224,11 +231,8 @@ if __name__ == '__main__':
     y_half_1 = y_train[:int(X_train.shape[0] / 2)]
     y_half_2 = y_train[int(X_train.shape[0] / 2):]
 
-    categorical_features = [
-        "building_id", "site_id",
-        "meter", "primary_use",
-        "hour", "weekday"
-    ]
+    # TODO: Read categorical features from config file
+    categorical_features = config["general"]["categorical_variables"]
 
     d_half_1 = lgb.Dataset(
         X_half_1,
@@ -254,7 +258,7 @@ if __name__ == '__main__':
         "num_leaves": 40,
         "learning_rate": 0.05,
         "feature_fraction": 0.85,
-        "reg_lambda": 2,
+        "reg_lambda": 3,
         "metric": "rmse"
     }
 
@@ -286,25 +290,17 @@ if __name__ == '__main__':
         "Loading test set...",
         sep='\n'
     )
-    df_test = pd.read_csv(MAIN / 'data' / 'test.csv')
-    weather_test = pd.read_csv(MAIN / 'data' / 'weather_test.csv')
 
-    df_test = reduce_mem_usage(
-        df_test,
-        use_float16=True,
-        cols_exclude=['timestamp']
-    )
-    weather_test = reduce_mem_usage(
-        weather_test,
-        use_float16=True,
-        cols_exclude=['timestamp']
-    )
+    test = pd.read_csv(MAIN / 'data' / 'test.csv')
 
-    if sample:
-        df_test = df_test[df_test['building_id'].isin(randbuilding)]
-        print("Shape of test data: ", df_test.shape)
+    # TODO: Call memory usage on test set
 
-    X_test, row_ids = prepare_data(df_test, building, weather_test, test=True)
+    # TODO: think of a better way to track the test ID's
+    # without having to hardcore the name
+    test_ids = test['Id']
+    test = preprocess_data(test, test=True)
+    test = feature_engineer(test, test=True)
+    X_test = transform_data(test, test=True)
 
     ######################
     # Prepare Submission #
@@ -318,7 +314,12 @@ if __name__ == '__main__':
         X_test,
         num_iteration=model_half_1.best_iteration
     )
-    pred = np.expm1(raw_pred_1) / 2
+
+    log_target = config["transform"]["log_target"]
+    if log_target:
+        pred = np.expm1(raw_pred_1) / 2
+    else:
+        pred = raw_pred_1 / 2
     del model_half_1
     gc.collect()
 
@@ -326,21 +327,18 @@ if __name__ == '__main__':
         X_test,
         num_iteration=model_half_2.best_iteration
     )
-    pred += np.expm1(raw_pred_2) / 2
+    # TODO: Same as above
+    if log_target:
+        pred += np.expm1(raw_pred_2) / 2
+    else:
+        pred += raw_pred_2 / 2
     del model_half_2
     gc.collect()
 
-    if not sample:
-        print("Saving predictions as csv...")
-        submission = pd.DataFrame(
-            {"row_id": row_ids, "meter_reading": np.clip(pred, 0, a_max=None)}
+    print("Saving predictions as csv...")
+    submission = pd.DataFrame(
+            {"Id": test_ids, "SalePrice": np.clip(pred, 0, a_max=None)}
         )
-        submission.to_csv(
-            SUBMISSIONS_PATH / (submission_name + '.csv'), index=False
-        )
-
-        print(
-            submission.meter_reading.describe().apply(
-                lambda x: format(x, ',.2f')
-            )
+    submission.to_csv(
+            SUBMISSIONS_PATH / (submission_name), index=False
         )
