@@ -150,4 +150,23 @@ transform:
     - YrSold
     - MoSold
     - MiscFeature
+    - MSZoning
+    - LandContour
+    - Electrical
+    - LotConfig
+    - Neighborhood
+    - Condition1
+    - Condition2
+    - BldgType
+    - HouseStyle
+    - RoofStyle
+    - RoofMatl
+    - GarageType
+    - Exterior1st
+    - Exterior2nd
+    - Heating
+    - Foundation
+    - SaleType
+    - SaleCondition
+    - MasVnrType
   log_target: True
