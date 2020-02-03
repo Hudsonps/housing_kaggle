@@ -51,6 +51,27 @@ preprocess:
   drop_cols:
     - Id
     - Utilities
+    - LotShape
+    - LotConfig
+    - Condition2
+    - BldgType
+    - HouseStyle
+    - BsmtQual
+    - GarageYrBlt
+    - GarageArea
+    - MoSold
+    - LandContour
+    - RoofMatl
+    - Exterior2nd
+    - MasVnrArea
+    - MasVnrType
+    - FireplaceQu
+    - Fence
+    - MiscFeature
+    - RoofStyle
+    - Street
+    - PoolQC
+    - PoolArea
   fill_most_frequent:
     - MSZoning
     - Electrical
@@ -102,6 +123,7 @@ preprocess:
 transform:
   log_cols:
   log1p_cols:
+  boxcox1p_cols:
     - PoolArea
     - MiscVal
     - LowQualFinSF
@@ -123,50 +145,34 @@ transform:
     - Fireplaces
     - LotFrontage
   onehot_cols:
-    - FireplaceQu
-    - BsmtQual
     - BsmtCond
     - GarageQual
     - GarageCond
     - ExterQual
     - ExterCond
     - HeatingQC
-    - PoolQC
     - KitchenQual
     - BsmtFinType1
     - BsmtFinType2
     - Functional
-    - Fence
     - BsmtExposure
     - GarageFinish
     - LandSlope
-    - LotShape
     - PavedDrive
-    - Street
     - Alley
     - CentralAir
     - MSSubClass
     - OverallCond
     - YrSold
-    - MoSold
-    - MiscFeature
     - MSZoning
-    - LandContour
     - Electrical
-    - LotConfig
     - Neighborhood
     - Condition1
-    - Condition2
-    - BldgType
-    - HouseStyle
-    - RoofStyle
-    - RoofMatl
     - GarageType
     - Exterior1st
-    - Exterior2nd
     - Heating
     - Foundation
     - SaleType
     - SaleCondition
-    - MasVnrType
+  targetencode_cols:
   log_target: True

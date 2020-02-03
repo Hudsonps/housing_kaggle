@@ -21,7 +21,11 @@ from sklearn.model_selection import cross_val_score, cross_val_predict
 from sklearn import metrics
 from sklearn.model_selection import KFold
 from sklearn.ensemble import GradientBoostingRegressor
-from ml_utils import print_full
+from sklearn.linear_model import ElasticNet, ElasticNetCV, Lasso, LassoCV, Ridge, RidgeCV, LinearRegression
+from sklearn.kernel_ridge import KernelRidge
+from sklearn.pipeline import make_pipeline
+
+from sklearn.model_selection import GridSearchCV
 
 
 def load_yaml(yaml_file: pathlib.Path):
@@ -45,10 +49,6 @@ def preprocess_data(X, y=None, test=False):
     fill_median_groupby = config["preprocess"]["fill_median_groupby"]
     type_str_cols = config["preprocess"]["type_str_cols"]
     categorical_features = config["general"]["categorical_variables"]
-
-    #######
-    for col in drop_cols:
-        X.drop(col, axis=1, inplace=True)
 
     for item in fill_custom:
         value = item["value"]
@@ -79,6 +79,12 @@ def preprocess_data(X, y=None, test=False):
     for col in categorical_features:
         X[col] = X[col].astype('category')
 
+    
+    #######
+    for col in drop_cols:
+        X.drop(col, axis=1, inplace=True)
+
+
     # TODO: Include a check for whether there are still missing values
     for col in X.columns:
         if any(X[col].isna()):
@@ -91,7 +97,7 @@ def preprocess_data(X, y=None, test=False):
         return X, y
 
 
-def feature_engineer(X, test=False):
+def feature_engineer(X, y=None, test=False):
     """
     This function needs to be adjusted for every use case
     It contains steps that cannot be generalized with a simple config file
@@ -100,25 +106,19 @@ def feature_engineer(X, test=False):
     for col in ['TotalBsmtSF', '1stFlrSF', '2ndFlrSF']:
         X.drop(col, axis=1, inplace=True)
 
-    # since the number of skewed features is very large,
-    # we will not use the config file at first to take the log of variables
-   # numeric_feats = []
-   # for col in X.columns:
-    #    if is_numeric_dtype(X[col]):
-     #       numeric_feats.append(col)
-    #skewed_feats = X[numeric_feats].apply(lambda x: skew(x.dropna()))\
-    #    .sort_values(ascending=False)
-    #skewness = pd.DataFrame({'Skew': skewed_feats})
-    #skewness = skewness[abs(skewness) > 0.75]
+    # removing outliers
+    if not test:
+        X = X[X['GrLivArea'] < 4500]
+      #  X = X[X['LotArea'] < 100000]
+       # X = X[X['TotalBsmtSF'] < 3000]
+       # X = X[X['1stFlrSF'] < 2500]
+       # X = X[X['BsmtFinSF1'] < 2000]
+        y = y[X.index]
 
-    #print(skewness)
-
-    #skewed_features = skewness.index
-    #lam = 0.15
-    #for feat in skewed_features:
-     #   X[feat] = boxcox1p(X[feat], lam)
-
-    return X
+    if test:
+        return X
+    else:
+        return X, y
 
 
 def transform_data(X, y=None, test=False):
@@ -138,7 +138,9 @@ def transform_data(X, y=None, test=False):
 
     log_cols = config["transform"]["log_cols"]
     log1p_cols = config["transform"]["log1p_cols"]
+    boxcox1p_cols = config["transform"]["log1p_cols"]
     onehot_cols = config["transform"]["onehot_cols"]
+    targetencode_cols = config["transform"]["targetencode_cols"]
     log_target = config["transform"]["log_target"]
 
     # generate time features (only relevant for time series)
@@ -166,6 +168,11 @@ def transform_data(X, y=None, test=False):
             # this will replace the columns with their log1p values
             X[col] = np.log1p(X[col])
 
+    if boxcox1p_cols:
+        for col in boxcox1p_cols:
+            # this will replace the columns with their boxcox1p values
+            X[col] = boxcox1p(X[col], 0.15)
+
     # robust scaler
     numeric_cols = X.select_dtypes(include=np.number).columns.tolist()
     if not test:
@@ -175,25 +182,23 @@ def transform_data(X, y=None, test=False):
     else:
         robust_scaler.transform(X[numeric_cols])
 
-    # one-hot encoding
-    #onehot_cols = []  # temporarily overwriting the config file
-    if onehot_cols:
+
+    # transforming target
+    if log_target and not test:
+        y = np.log1p(y)
+
+    # target encoding
+    if targetencode_cols:
         if not test:
-            # onehot_encoder must be global so it can be used
-            # again on the test test
-            global onehot_encoder
-            onehot_encoder = ce.OneHotEncoder(
-                cols=onehot_cols,
-                use_cat_names=True)
-            X = onehot_encoder.fit_transform(X)
+            global target_encoder
+            target_encoder = ce.TargetEncoder(cols=targetencode_cols)
+            X = target_encoder.fit_transform(X, y)
         else:
-            X = onehot_encoder.transform(X)
+            X = target_encoder.transform(X)
 
     if test:
         return X
     else:
-        if log_target:
-            y = np.log1p(y)
         return X, y
 
 
@@ -218,6 +223,7 @@ if __name__ == '__main__':
     y_train = train[target]
     X_train = train.drop([target], axis=1)
 
+
     # TODO: reimplement reduce memory usage
 
     #######################
@@ -228,7 +234,7 @@ if __name__ == '__main__':
     # Prepare Training Data #
     #########################
     X_train, y_train = preprocess_data(X_train, y_train, test=False)
-    X_train = feature_engineer(X_train, test=False)
+    X_train, y_train = feature_engineer(X_train, y_train, test=False)
     X_train, y_train = transform_data(X_train, y_train, test=False)
 
     def rmsle_cv(model):
@@ -250,15 +256,14 @@ if __name__ == '__main__':
        objective='regression',
        num_leaves=5,
        learning_rate=0.05,
-       n_estimators=720,
-       max_bin=55,
-       bagging_fraction=0.8,
-       bagging_freq=5,
-       feature_fraction=0.2319,
-       feature_fraction_seed=9,
-       bagging_seed=9,
-       min_data_in_leaf=6,
-       min_sum_hessian_in_leaf=11)
+       n_estimators=400,
+       #bagging_fraction=0.8)
+      # bagging_freq=5,
+       feature_fraction=0.2)
+      # feature_fraction_seed=9,
+      # bagging_seed=9,
+      # min_data_in_leaf=6,
+      # min_sum_hessian_in_leaf=11)
 
     model_xgb = xgb.XGBRegressor(colsample_bytree=0.4603, gamma=0.0468,
                              learning_rate=0.05, max_depth=3,
@@ -272,17 +277,34 @@ if __name__ == '__main__':
                                    min_samples_leaf=15, min_samples_split=10,
                                    loss='huber', random_state =5)
 
+    onehot_cols = config["transform"]["onehot_cols"]
+
+    lasso = make_pipeline(ce.OneHotEncoder(
+                cols=onehot_cols,
+                use_cat_names=True),
+                Lasso(alpha=0.0005, random_state=1))
+
+    Enet = make_pipeline(ce.OneHotEncoder(
+                cols=onehot_cols,
+                use_cat_names=True),
+                ElasticNet(alpha=0.0005, l1_ratio=.5, random_state=3))
+
+    RidgeReg = make_pipeline(ce.OneHotEncoder(
+                cols=onehot_cols,
+                use_cat_names=True), RidgeCV())
+
     model_list.append(model_lgb)
-    model_list.append(model_xgb)
-    model_list.append(GBoost)
+    model_list.append(lasso)
+    model_list.append(Enet)
+    model_list.append(RidgeReg)
 
     categorical_features = config["general"]["categorical_variables"]
 
     for model in model_list:
         print("A NEW MODEL")
         model.fit(X_train, y_train)
-        print("\nTraining score: {:.4f}\n".format(model.score(X_train, y_train)))
-        #rmsle_cv(model)
+        #print("\nTraining score: {:.4f}\n".format(model.score(X_train, y_train)))
+        rmsle_cv(model)
 
     #params = {
      #   "objective": "regression",
