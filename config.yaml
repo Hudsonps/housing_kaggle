@@ -124,7 +124,6 @@ transform:
   log_cols:
   log1p_cols:
   boxcox1p_cols:
-    - PoolArea
     - MiscVal
     - LowQualFinSF
     - 3SsnPorch

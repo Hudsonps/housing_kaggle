@@ -24,8 +24,9 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import ElasticNet, ElasticNetCV, Lasso, LassoCV, Ridge, RidgeCV, LinearRegression
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.pipeline import make_pipeline
-
 from sklearn.model_selection import GridSearchCV
+
+from ml_utils import StackingAveragedModels, AveragingModels
 
 
 def load_yaml(yaml_file: pathlib.Path):
@@ -42,7 +43,6 @@ def preprocess_data(X, y=None, test=False):
     # TODO: read drop_cols from config file
 
     config = load_yaml("./config.yaml")
-
     drop_cols = config["preprocess"]["drop_cols"]
     fill_custom = config["preprocess"]["fill_custom"]
     fill_most_frequent_cols = config["preprocess"]["fill_most_frequent"]
@@ -79,7 +79,7 @@ def preprocess_data(X, y=None, test=False):
     for col in categorical_features:
         X[col] = X[col].astype('category')
 
-    
+
     #######
     for col in drop_cols:
         X.drop(col, axis=1, inplace=True)
@@ -102,18 +102,28 @@ def feature_engineer(X, y=None, test=False):
     This function needs to be adjusted for every use case
     It contains steps that cannot be generalized with a simple config file
     """
-    X['TotalSF'] = X['TotalBsmtSF'] + X['1stFlrSF'] + X['2ndFlrSF']
-    for col in ['TotalBsmtSF', '1stFlrSF', '2ndFlrSF']:
-        X.drop(col, axis=1, inplace=True)
 
     # removing outliers
     if not test:
         X = X[X['GrLivArea'] < 4500]
-      #  X = X[X['LotArea'] < 100000]
-       # X = X[X['TotalBsmtSF'] < 3000]
-       # X = X[X['1stFlrSF'] < 2500]
-       # X = X[X['BsmtFinSF1'] < 2000]
+        #X = X[X['LotArea'] < 100000]
+        #X = X[X['TotalBsmtSF'] < 3000]
+        #X = X[X['1stFlrSF'] < 2500]
+        #X = X[X['BsmtFinSF1'] < 2000]
         y = y[X.index]
+
+    # number of floors
+   # X['is_there_2nd'] = X['2ndFlrSF'].apply(lambda x: 1 if x > 0 else 0)
+
+    X['TotalSF'] = X['TotalBsmtSF'] + X['1stFlrSF'] + X['2ndFlrSF']
+    for col in ['TotalBsmtSF', '1stFlrSF', '2ndFlrSF']:
+        X.drop(col, axis=1, inplace=True)
+
+   # X['HasPool'] = X['PoolArea'].apply(lambda x: 1 if x > 0 else 0)
+   # X.drop('PoolArea', axis=1, inplace=True)
+
+   # X['HasGarage'] = X['GarageArea'].apply(lambda x: 1 if x > 0 else 0)
+    #X.drop('GarageArea', axis=1, inplace=True)
 
     if test:
         return X
@@ -138,7 +148,7 @@ def transform_data(X, y=None, test=False):
 
     log_cols = config["transform"]["log_cols"]
     log1p_cols = config["transform"]["log1p_cols"]
-    boxcox1p_cols = config["transform"]["log1p_cols"]
+    boxcox1p_cols = config["transform"]["boxcox1p_cols"]
     onehot_cols = config["transform"]["onehot_cols"]
     targetencode_cols = config["transform"]["targetencode_cols"]
     log_target = config["transform"]["log_target"]
@@ -170,8 +180,10 @@ def transform_data(X, y=None, test=False):
 
     if boxcox1p_cols:
         for col in boxcox1p_cols:
-            # this will replace the columns with their boxcox1p values
-            X[col] = boxcox1p(X[col], 0.15)
+            if col in columns:
+                print("taking the log of "+str(col))
+                # this will replace the columns with their boxcox1p values
+                X[col] = boxcox1p(X[col], 1)
 
     # robust scaler
     numeric_cols = X.select_dtypes(include=np.number).columns.tolist()
@@ -211,6 +223,8 @@ if __name__ == '__main__':
 
     config = load_yaml("./config.yaml")
 
+    categorical_features = config["general"]["categorical_variables"]
+
     target = config["general"]["target_variable"]
     #############
     # Load Data #
@@ -237,6 +251,9 @@ if __name__ == '__main__':
     X_train, y_train = feature_engineer(X_train, y_train, test=False)
     X_train, y_train = transform_data(X_train, y_train, test=False)
 
+    X_train.reset_index(drop=True, inplace=True)
+    y_train.reset_index(drop=True, inplace=True)
+
     def rmsle_cv(model):
         kf = KFold(n_splits=5, shuffle=True, random_state=42)
         score = np.sqrt(-cross_val_score(
@@ -257,8 +274,6 @@ if __name__ == '__main__':
        num_leaves=5,
        learning_rate=0.05,
        n_estimators=400,
-       #bagging_fraction=0.8)
-      # bagging_freq=5,
        feature_fraction=0.2)
       # feature_fraction_seed=9,
       # bagging_seed=9,
@@ -293,12 +308,17 @@ if __name__ == '__main__':
                 cols=onehot_cols,
                 use_cat_names=True), RidgeCV())
 
-    model_list.append(model_lgb)
-    model_list.append(lasso)
-    model_list.append(Enet)
-    model_list.append(RidgeReg)
+    stacked = AveragingModels(
+        models=(RidgeReg, Enet, lasso, model_lgb))
 
-    categorical_features = config["general"]["categorical_variables"]
+    #model_list.append(model_lgb)
+   #model_list.append(lasso)
+   # model_list.append(Enet)
+   # model_list.append(RidgeReg)
+
+    #model_list.append(model_lgb)
+
+    model_list.append(stacked)
 
     for model in model_list:
         print("A NEW MODEL")
