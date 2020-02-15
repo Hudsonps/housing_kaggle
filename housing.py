@@ -15,6 +15,7 @@ from sklearn.preprocessing import LabelEncoder, RobustScaler
 import category_encoders as ce
 import yaml
 from scipy.special import boxcox1p
+from scipy.stats import boxcox_normmax, zscore
 from scipy import stats
 from scipy.stats import norm, skew
 from sklearn.model_selection import cross_val_score, cross_val_predict
@@ -103,6 +104,9 @@ def feature_engineer(X, y=None, test=False):
     It contains steps that cannot be generalized with a simple config file
     """
 
+    config = load_yaml("./config.yaml")
+    onehot_cols = config["transform"]["onehot_cols"]
+
     # removing outliers
     if not test:
         X = X[X['GrLivArea'] < 4500]
@@ -118,12 +122,27 @@ def feature_engineer(X, y=None, test=False):
     X['TotalSF'] = X['TotalBsmtSF'] + X['1stFlrSF'] + X['2ndFlrSF']
     for col in ['TotalBsmtSF', '1stFlrSF', '2ndFlrSF']:
         X.drop(col, axis=1, inplace=True)
+    X['TotalSF'] = np.log1p(X['TotalSF'])
 
-   # X['HasPool'] = X['PoolArea'].apply(lambda x: 1 if x > 0 else 0)
-   # X.drop('PoolArea', axis=1, inplace=True)
+    X['TotalPorch'] = X['OpenPorchSF'] + X['EnclosedPorch']
+    for col in ['OpenPorchSF', 'EnclosedPorch']:
+        X.drop(col, axis=1, inplace=True)
+    X['TotalPorch'] = np.log1p(X['TotalPorch'])
 
-   # X['HasGarage'] = X['GarageArea'].apply(lambda x: 1 if x > 0 else 0)
-    #X.drop('GarageArea', axis=1, inplace=True)
+    X['TotalBath'] = X['FullBath'] + X['BsmtFullBath'] +\
+        0.5*(X['BsmtHalfBath'] + X['HalfBath'])
+    for col in ['FullBath', 'BsmtFullBath', 'BsmtHalfBath', 'HalfBath']:
+        X.drop(col, axis=1, inplace=True)
+    X['TotalBath'] = np.log1p(X['TotalBath'])
+
+    if not test:
+        lr = make_pipeline(ce.OneHotEncoder(
+                cols=onehot_cols,
+                use_cat_names=True), LinearRegression())
+        resids = y - lr.fit(X, y).predict(X)
+        outliers = resids[np.abs(zscore(resids)) > 2.5].index
+        X.drop(outliers, inplace=True)
+        y = y[X.index]
 
     if test:
         return X
@@ -183,7 +202,7 @@ def transform_data(X, y=None, test=False):
             if col in columns:
                 print("taking the log of "+str(col))
                 # this will replace the columns with their boxcox1p values
-                X[col] = boxcox1p(X[col], 1)
+                X[col] = boxcox1p(X[col], 0.15)
 
     # robust scaler
     numeric_cols = X.select_dtypes(include=np.number).columns.tolist()
@@ -223,6 +242,8 @@ if __name__ == '__main__':
 
     config = load_yaml("./config.yaml")
 
+    onehot_cols = config["transform"]["onehot_cols"]
+
     categorical_features = config["general"]["categorical_variables"]
 
     target = config["general"]["target_variable"]
@@ -251,8 +272,8 @@ if __name__ == '__main__':
     X_train, y_train = feature_engineer(X_train, y_train, test=False)
     X_train, y_train = transform_data(X_train, y_train, test=False)
 
-    X_train.reset_index(drop=True, inplace=True)
-    y_train.reset_index(drop=True, inplace=True)
+    #X_train.reset_index(drop=True, inplace=True)
+    #y_train.reset_index(drop=True, inplace=True)
 
     def rmsle_cv(model):
         kf = KFold(n_splits=5, shuffle=True, random_state=42)
@@ -280,19 +301,27 @@ if __name__ == '__main__':
       # min_data_in_leaf=6,
       # min_sum_hessian_in_leaf=11)
 
-    model_xgb = xgb.XGBRegressor(colsample_bytree=0.4603, gamma=0.0468,
+    model_xgb = make_pipeline(ce.OneHotEncoder(
+        cols=onehot_cols,
+        use_cat_names=True),
+        xgb.XGBRegressor(colsample_bytree=0.4603, gamma=0.0468,
                              learning_rate=0.05, max_depth=3,
                              min_child_weight=1.7817, n_estimators=2200,
                              reg_alpha=0.4640, reg_lambda=0.8571,
                              subsample=0.5213, silent=1,
-                             random_state =7, nthread = -1)
+                             random_state =7, nthread = -1))
 
-    GBoost = GradientBoostingRegressor(n_estimators=3000, learning_rate=0.05,
+    GBoost = make_pipeline(ce.OneHotEncoder(
+        cols=onehot_cols,
+        use_cat_names=True),
+        GradientBoostingRegressor(n_estimators=1000, learning_rate=0.05,
                                    max_depth=4, max_features='sqrt',
                                    min_samples_leaf=15, min_samples_split=10,
-                                   loss='huber', random_state =5)
+                                   loss='huber', random_state =5))
 
-    onehot_cols = config["transform"]["onehot_cols"]
+    linear = make_pipeline(ce.OneHotEncoder(
+                cols=onehot_cols,
+                use_cat_names=True), LinearRegression())
 
     lasso = make_pipeline(ce.OneHotEncoder(
                 cols=onehot_cols,
@@ -308,8 +337,13 @@ if __name__ == '__main__':
                 cols=onehot_cols,
                 use_cat_names=True), RidgeCV())
 
-    stacked = AveragingModels(
-        models=(RidgeReg, Enet, lasso, model_lgb))
+    ensemble = AveragingModels(
+        models=(RidgeReg, Enet, lasso, model_lgb, GBoost))
+
+    stacked = StackingAveragedModels(
+        base_models=(Enet, lasso, model_lgb, GBoost, RidgeReg),
+        meta_model=Lasso(alpha=0.0005, random_state=1)
+    )
 
     #model_list.append(model_lgb)
    #model_list.append(lasso)
@@ -318,12 +352,11 @@ if __name__ == '__main__':
 
     #model_list.append(model_lgb)
 
-    model_list.append(stacked)
+    model_list.append(ensemble)
 
     for model in model_list:
         print("A NEW MODEL")
         model.fit(X_train, y_train)
-        #print("\nTraining score: {:.4f}\n".format(model.score(X_train, y_train)))
         rmsle_cv(model)
 
     #params = {

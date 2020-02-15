@@ -71,7 +71,7 @@ preprocess:
     - RoofStyle
     - Street
     - PoolQC
-    - PoolArea
+   # - PoolArea
   fill_most_frequent:
     - MSZoning
     - Electrical
@@ -113,6 +113,7 @@ preprocess:
         - BsmtFullBath
         - BsmtHalfBath
         - MasVnrArea
+        - PoolArea
   fill_median_groupby:
     - groupby_cols:
         - Neighborhood
@@ -126,22 +127,22 @@ transform:
   boxcox1p_cols:
     - MiscVal
     - LowQualFinSF
-    - 3SsnPorch
+   # - 3SsnPorch
     - EnclosedPorch
-    - KitchenAbvGr
-    - BsmtFinSF2
-    - ScreenPorch
+  #  - KitchenAbvGr
+   # - BsmtFinSF2
+   # - ScreenPorch
     - BsmtHalfBath
     - LotArea
-    - OpenPorchSF
-    - MasVnrArea
-    - WoodDeckSF
-    - TotalSF
-    - BsmtFinSF1
+   # - OpenPorchSF
+   # - MasVnrArea
+   # - WoodDeckSF
+   # - TotalSF
+   # - BsmtFinSF1
     - GrLivArea
-    - BsmtUnfSF
+   # - BsmtUnfSF
     - TotRmsAbvGrd
-    - Fireplaces
+   # - Fireplaces
     - LotFrontage
   onehot_cols:
     - BsmtCond
