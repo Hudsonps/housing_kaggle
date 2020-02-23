@@ -14,7 +14,7 @@ from pandas.api.types import is_categorical_dtype
 import numpy as np
 import yaml
 from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin, clone
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, cross_validate
 
 
 class AveragingModels(BaseEstimator, RegressorMixin, TransformerMixin):
@@ -23,20 +23,49 @@ class AveragingModels(BaseEstimator, RegressorMixin, TransformerMixin):
     def __init__(self, models):
         self.models = models
 
-    # we define clones of the original models to fit the data in
     def fit(self, X, y):
-        self.models_ = [clone(x) for x in self.models]
 
         # Train cloned base models
-        for model in self.models_:
+        for model in self.models:
             model.fit(X, y)
 
         return self
 
     def predict(self, X):
         predictions = np.column_stack([
-            model.predict(X) for model in self.models_
+            model.predict(X) for model in self.models
         ])
+        return np.mean(predictions, axis=1)
+
+
+class CrossValidateAveragingModels(BaseEstimator,
+                                   RegressorMixin,
+                                   TransformerMixin):
+    '''from the following kernel:
+    https://www.kaggle.com/serigne/stacked-regressions-top-4-on-leaderboard'''
+    def __init__(self, models):
+        self.models = models
+
+    def fit(self, X, y):
+        self.models_cv = ()
+        # Train cloned base models
+        for model in self.models:
+            cv_dict = cross_validate(
+                model,
+                X=X,
+                y=y,
+                cv=10,
+                return_estimator=True
+            )
+            self.models_cv += cv_dict['estimator']
+
+        return self
+
+    def predict(self, X):
+        predictions = np.column_stack([
+            model.predict(X) for model in self.models_cv
+        ])
+        print(len(self.models_cv))
         return np.mean(predictions, axis=1)
 
 
