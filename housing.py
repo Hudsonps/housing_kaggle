@@ -15,19 +15,19 @@ from sklearn.preprocessing import LabelEncoder, RobustScaler
 import category_encoders as ce
 import yaml
 from scipy.special import boxcox1p
-from scipy.stats import boxcox_normmax, zscore
+from scipy.stats import zscore
 from scipy import stats
 from scipy.stats import norm, skew
 from sklearn.model_selection import cross_val_score, cross_val_predict
-from sklearn import metrics
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, cross_validate
 from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.linear_model import ElasticNet, ElasticNetCV, Lasso, LassoCV, Ridge, RidgeCV, LinearRegression
-from sklearn.kernel_ridge import KernelRidge
+from sklearn.linear_model import ElasticNet, ElasticNetCV, Lasso, LassoCV
+from sklearn.linear_model import RidgeCV, LinearRegression
 from sklearn.pipeline import make_pipeline
-from sklearn.model_selection import GridSearchCV
+#from sklearn.model_selection import GridSearchCV
 
 from ml_utils import StackingAveragedModels, AveragingModels
+from ml_utils import CrossValidateAveragingModels
 
 
 def load_yaml(yaml_file: pathlib.Path):
@@ -80,11 +80,9 @@ def preprocess_data(X, y=None, test=False):
     for col in categorical_features:
         X[col] = X[col].astype('category')
 
-
     #######
     for col in drop_cols:
         X.drop(col, axis=1, inplace=True)
-
 
     # TODO: Include a check for whether there are still missing values
     for col in X.columns:
@@ -110,14 +108,7 @@ def feature_engineer(X, y=None, test=False):
     # removing outliers
     if not test:
         X = X[X['GrLivArea'] < 4500]
-        #X = X[X['LotArea'] < 100000]
-        #X = X[X['TotalBsmtSF'] < 3000]
-        #X = X[X['1stFlrSF'] < 2500]
-        #X = X[X['BsmtFinSF1'] < 2000]
         y = y[X.index]
-
-    # number of floors
-   # X['is_there_2nd'] = X['2ndFlrSF'].apply(lambda x: 1 if x > 0 else 0)
 
     X['TotalSF'] = X['TotalBsmtSF'] + X['1stFlrSF'] + X['2ndFlrSF']
     for col in ['TotalBsmtSF', '1stFlrSF', '2ndFlrSF']:
@@ -340,6 +331,10 @@ if __name__ == '__main__':
     ensemble = AveragingModels(
         models=(RidgeReg, Enet, lasso, model_lgb, GBoost))
 
+    cross_validate_ensemble = CrossValidateAveragingModels(
+        models=[RidgeReg, Enet, lasso, model_lgb, GBoost]
+    )
+
     stacked = StackingAveragedModels(
         base_models=(Enet, lasso, model_lgb, GBoost, RidgeReg),
         meta_model=Lasso(alpha=0.0005, random_state=1)
@@ -356,8 +351,9 @@ if __name__ == '__main__':
 
     for model in model_list:
         print("A NEW MODEL")
+
         model.fit(X_train, y_train)
-        rmsle_cv(model)
+       # rmsle_cv(model)
 
     #params = {
      #   "objective": "regression",
